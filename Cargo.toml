@@ -13,3 +13,10 @@ cargo_metadata = "0.11.1"
 locate-cargo-manifest = "0.2.0"
 thiserror = "1.0.20"
 toml = "0.5.6"
+
+[package.metadata.release]
+no-dev-version = true
+pre-release-replacements = [
+    { file="Changelog.md", search="# Unreleased", replace="# Unreleased\n\n# {{version}} – {{date}}", exactly=1 },
+]
+pre-release-commit-message = "Release version {{version}}"
