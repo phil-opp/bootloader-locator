@@ -33,6 +33,7 @@ pub fn locate_bootloader() -> Result<BootloaderInfo, Error> {
     Ok(BootloaderInfo {
         package: bootloader_pkg.to_owned(),
         features,
+        kernel_manifest_path,
     })
 }
 
@@ -40,6 +41,7 @@ pub fn locate_bootloader() -> Result<BootloaderInfo, Error> {
 pub struct BootloaderInfo {
     pub package: cargo_metadata::Package,
     pub features: Vec<String>,
+    pub kernel_manifest_path: PathBuf,
 }
 
 /// There is something wrong with the bootloader dependency.
