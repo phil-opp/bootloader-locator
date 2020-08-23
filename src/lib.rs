@@ -1,4 +1,4 @@
-use std::{path::{PathBuf}};
+use std::path::PathBuf;
 
 pub use cargo_metadata;
 
@@ -53,11 +53,11 @@ pub enum Error {
         #[from]
         metadata_error: cargo_metadata::Error,
     },
-    
+
     /// Failed to locate cargo manifest
     #[error("Failed to locate the cargo manifest (`Cargo.toml`)")]
     LocateManifest(#[from] locate_cargo_manifest::LocateManifestError),
-    
+
     /// Bootloader dependency not found
     #[error(
         "Bootloader dependency not found\n\n\
@@ -73,7 +73,7 @@ pub enum Error {
         /// The manifest path of the kernel package
         manifest_path: PathBuf,
     },
-    
+
     /// Could not find some required information in the `cargo metadata` output
     #[error("Could not find required key `{key}` in cargo metadata output")]
     CargoMetadataIncomplete {
@@ -82,24 +82,24 @@ pub enum Error {
     },
 }
 
-    /// Returns the package metadata for the bootloader crate
-    fn bootloader_package<'a>(
-        project_metadata: &'a cargo_metadata::Metadata,
-        kernel_package: &cargo_metadata::Package,
-    ) -> Result<&'a cargo_metadata::Package, Error> {
-        let bootloader_name = {
-            let mut dependencies = kernel_package.dependencies.iter();
-            let bootloader_package = dependencies
-                .find(|p| p.rename.as_ref().unwrap_or(&p.name) == "bootloader")
-                .ok_or(Error::BootloaderNotFound)?;
-            bootloader_package.name.clone()
-        };
-    
-        project_metadata
-            .packages
-            .iter()
-            .find(|p| p.name == bootloader_name)
-            .ok_or(Error::CargoMetadataIncomplete {
-                key: format!("packages[name = `{}`", &bootloader_name),
-            })
-    }
+/// Returns the package metadata for the bootloader crate
+fn bootloader_package<'a>(
+    project_metadata: &'a cargo_metadata::Metadata,
+    kernel_package: &cargo_metadata::Package,
+) -> Result<&'a cargo_metadata::Package, Error> {
+    let bootloader_name = {
+        let mut dependencies = kernel_package.dependencies.iter();
+        let bootloader_package = dependencies
+            .find(|p| p.rename.as_ref().unwrap_or(&p.name) == "bootloader")
+            .ok_or(Error::BootloaderNotFound)?;
+        bootloader_package.name.clone()
+    };
+
+    project_metadata
+        .packages
+        .iter()
+        .find(|p| p.name == bootloader_name)
+        .ok_or(Error::CargoMetadataIncomplete {
+            key: format!("packages[name = `{}`", &bootloader_name),
+        })
+}
