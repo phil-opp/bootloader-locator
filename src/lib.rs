@@ -17,22 +17,8 @@ pub fn locate_bootloader() -> Result<BootloaderInfo, Error> {
 
     let bootloader_pkg = bootloader_package(&project_metadata, kernel_pkg)?;
 
-    let resolve_opt = project_metadata.resolve.as_ref();
-    let resolve = resolve_opt.ok_or(Error::CargoMetadataIncomplete {
-        key: "resolve".into(),
-    })?;
-    let bootloader_resolve = resolve
-        .nodes
-        .iter()
-        .find(|n| n.id == bootloader_pkg.id)
-        .ok_or(Error::CargoMetadataIncomplete {
-            key: format!("resolve[\"{}\"]", bootloader_pkg.name),
-        })?;
-    let features = bootloader_resolve.features.clone();
-
     Ok(BootloaderInfo {
         package: bootloader_pkg.to_owned(),
-        features,
         kernel_manifest_path,
     })
 }
@@ -40,7 +26,6 @@ pub fn locate_bootloader() -> Result<BootloaderInfo, Error> {
 #[derive(Debug)]
 pub struct BootloaderInfo {
     pub package: cargo_metadata::Package,
-    pub features: Vec<String>,
     pub kernel_manifest_path: PathBuf,
 }
 
