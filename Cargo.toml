@@ -1,6 +1,6 @@
 [package]
 name = "bootloader-locator"
-version = "0.0.2"
+version = "0.0.3"
 authors = ["Philipp Oppermann <dev@phil-opp.com>"]
 edition = "2018"
 description = "Retrieves the file system location of a `bootloader` dependency"
