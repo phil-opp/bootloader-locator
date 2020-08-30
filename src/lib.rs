@@ -1,90 +1,168 @@
-use std::path::PathBuf;
+//! Helper crate for locating a `bootloader` dependency on the file system.
 
-pub use cargo_metadata;
+#![warn(missing_docs)]
 
-pub fn locate_bootloader() -> Result<BootloaderInfo, Error> {
-    let project_metadata = cargo_metadata::MetadataCommand::new().exec()?;
+use std::{convert, fmt, io, path::PathBuf, process::Command, string};
 
-    let kernel_manifest_path = locate_cargo_manifest::locate_manifest()?;
+/// Locates the dependency with the given name on the file system.
+///
+/// Returns the manifest path of the bootloader, i.e. the path to the Cargo.toml on the file
+/// system.
+pub fn locate_bootloader(dependency_name: &str) -> Result<PathBuf, LocateError> {
+    let metadata = metadata()?;
 
-    let kernel_pkg = project_metadata
-        .packages
-        .iter()
-        .find(|p| p.manifest_path == kernel_manifest_path)
-        .ok_or_else(|| Error::KernelPackageNotFound {
-            manifest_path: kernel_manifest_path.to_owned(),
-        })?;
+    let root = metadata["resolve"]["root"]
+        .as_str()
+        .ok_or(LocateError::MetadataInvalid)?;
 
-    let bootloader_pkg = bootloader_package(&project_metadata, kernel_pkg)?;
+    let root_resolve = metadata["resolve"]["nodes"]
+        .members()
+        .find(|r| r["id"] == root)
+        .ok_or(LocateError::MetadataInvalid)?;
 
-    Ok(BootloaderInfo {
-        package: bootloader_pkg.to_owned(),
-        kernel_manifest_path,
-    })
+    let dependency = root_resolve["deps"]
+        .members()
+        .find(|d| d["name"] == dependency_name)
+        .ok_or(LocateError::DependencyNotFound)?;
+    let dependency_id = dependency["pkg"]
+        .as_str()
+        .ok_or(LocateError::MetadataInvalid)?;
+
+    let dependency_package = metadata["packages"]
+        .members()
+        .find(|p| p["id"] == dependency_id)
+        .ok_or(LocateError::MetadataInvalid)?;
+    let dependency_manifest = dependency_package["manifest_path"]
+        .as_str()
+        .ok_or(LocateError::MetadataInvalid)?;
+
+    Ok(dependency_manifest.into())
 }
 
+/// Failed to locate the bootloader dependency with the given name.
 #[derive(Debug)]
-pub struct BootloaderInfo {
-    pub package: cargo_metadata::Package,
-    pub kernel_manifest_path: PathBuf,
+pub enum LocateError {
+    /// The project metadata returned from `cargo metadata` was not valid.
+    MetadataInvalid,
+    /// No dependency with the given name found in the project metadata.
+    DependencyNotFound,
+    /// Failed to query project metadata.
+    Metadata(CargoMetadataError),
 }
 
-/// There is something wrong with the bootloader dependency.
-#[derive(Debug, thiserror::Error)]
-pub enum Error {
-    /// Error occured while running `cargo_metadata`
-    #[error("An error occured while running `cargo_metadata`")]
-    CargoMetadata {
-        #[from]
-        metadata_error: cargo_metadata::Error,
-    },
-
-    /// Failed to locate cargo manifest
-    #[error("Failed to locate the cargo manifest (`Cargo.toml`)")]
-    LocateManifest(#[from] locate_cargo_manifest::LocateManifestError),
-
-    /// Bootloader dependency not found
-    #[error(
-        "Bootloader dependency not found\n\n\
-        You need to add a dependency on a crate named `bootloader` in your Cargo.toml."
-    )]
-    BootloaderNotFound,
-
-    /// Could not find kernel package in cargo metadata
-    #[error(
-        "Could not find package with manifest path `{manifest_path}` in cargo metadata output"
-    )]
-    KernelPackageNotFound {
-        /// The manifest path of the kernel package
-        manifest_path: PathBuf,
-    },
-
-    /// Could not find some required information in the `cargo metadata` output
-    #[error("Could not find required key `{key}` in cargo metadata output")]
-    CargoMetadataIncomplete {
-        /// The required key that was not found
-        key: String,
-    },
+impl fmt::Display for LocateError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            LocateError::MetadataInvalid => write!(f, "The `cargo metadata` output was not valid"),
+            LocateError::DependencyNotFound => write!(
+                f,
+                "Could not find a dependency with the given name in the `cargo metadata` output"
+            ),
+            LocateError::Metadata(source) => {
+                write!(f, "Failed to retrieve project metadata: {}", source)
+            }
+        }
+    }
 }
 
-/// Returns the package metadata for the bootloader crate
-fn bootloader_package<'a>(
-    project_metadata: &'a cargo_metadata::Metadata,
-    kernel_package: &cargo_metadata::Package,
-) -> Result<&'a cargo_metadata::Package, Error> {
-    let bootloader_name = {
-        let mut dependencies = kernel_package.dependencies.iter();
-        let bootloader_package = dependencies
-            .find(|p| p.rename.as_ref().unwrap_or(&p.name) == "bootloader")
-            .ok_or(Error::BootloaderNotFound)?;
-        bootloader_package.name.clone()
-    };
+impl std::error::Error for LocateError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            LocateError::MetadataInvalid => None,
+            LocateError::DependencyNotFound => None,
+            LocateError::Metadata(source) => Some(source),
+        }
+    }
+}
 
-    project_metadata
-        .packages
-        .iter()
-        .find(|p| p.name == bootloader_name)
-        .ok_or(Error::CargoMetadataIncomplete {
-            key: format!("packages[name = `{}`", &bootloader_name),
-        })
+impl convert::From<CargoMetadataError> for LocateError {
+    fn from(source: CargoMetadataError) -> Self {
+        LocateError::Metadata(source)
+    }
+}
+
+fn metadata() -> Result<json::JsonValue, CargoMetadataError> {
+    let mut cmd = Command::new(env!("CARGO"));
+    cmd.arg("metadata");
+    cmd.arg("--format-version").arg("1");
+    let output = cmd.output()?;
+
+    if !output.status.success() {
+        return Err(CargoMetadataError::Failed {
+            stderr: output.stderr,
+        });
+    }
+
+    let output = String::from_utf8(output.stdout)?;
+    let parsed = json::parse(&output)?;
+
+    Ok(parsed)
+}
+
+/// Failed to query project metadata.
+#[derive(Debug)]
+pub enum CargoMetadataError {
+    /// An I/O error that occurred while trying to execute `cargo metadata`.
+    Io(io::Error),
+    /// The command `cargo metadata` did not exit successfully.
+    Failed {
+        /// The standard error output of `cargo metadata`.
+        stderr: Vec<u8>,
+    },
+    /// The output of `cargo metadata` was not valid UTF-8.
+    StringConversion(string::FromUtf8Error),
+    /// An error occurred while parsing the output of `cargo metadata` as JSON.
+    ParseJson(json::Error),
+}
+
+impl fmt::Display for CargoMetadataError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            CargoMetadataError::Io(err) => write!(f, "Failed to execute `cargo metadata`: {}", err),
+            CargoMetadataError::Failed { stderr } => write!(
+                f,
+                "`cargo metadata` was not successful: {}",
+                String::from_utf8_lossy(stderr)
+            ),
+            CargoMetadataError::StringConversion(err) => write!(
+                f,
+                "Failed to convert the `cargo metadata` output to a string: {}",
+                err
+            ),
+            CargoMetadataError::ParseJson(err) => write!(
+                f,
+                "Failed to parse `cargo metadata` output as JSON: {}",
+                err
+            ),
+        }
+    }
+}
+
+impl std::error::Error for CargoMetadataError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            CargoMetadataError::Io(err) => Some(err),
+            CargoMetadataError::Failed { stderr: _ } => None,
+            CargoMetadataError::StringConversion(err) => Some(err),
+            CargoMetadataError::ParseJson(err) => Some(err),
+        }
+    }
+}
+
+impl convert::From<io::Error> for CargoMetadataError {
+    fn from(source: io::Error) -> Self {
+        CargoMetadataError::Io(source)
+    }
+}
+
+impl convert::From<string::FromUtf8Error> for CargoMetadataError {
+    fn from(source: string::FromUtf8Error) -> Self {
+        CargoMetadataError::StringConversion(source)
+    }
+}
+
+impl convert::From<json::Error> for CargoMetadataError {
+    fn from(source: json::Error) -> Self {
+        CargoMetadataError::ParseJson(source)
+    }
 }
