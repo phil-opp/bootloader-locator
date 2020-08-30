@@ -1,5 +1,7 @@
 # Unreleased
 
+# 0.0.4 – 2020-08-30
+
 - Rewrite crate
     - Add support for dependencies not named "bootloader"
     - Use `resolve` table for detection to also support renamed dependencies
