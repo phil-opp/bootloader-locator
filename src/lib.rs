@@ -8,8 +8,8 @@ use std::{convert, fmt, io, path::PathBuf, process::Command, string};
 ///
 /// Returns the manifest path of the bootloader, i.e. the path to the Cargo.toml on the file
 /// system.
-pub fn locate_bootloader(dependency_name: &str) -> Result<PathBuf, LocateError> {
-    let metadata = metadata()?;
+pub fn locate_bootloader(dependency_name: &str, path: Option<PathBuf>) -> Result<PathBuf, LocateError> {
+    let metadata = metadata(path)?;
 
     let root = metadata["resolve"]["root"]
         .as_str()
@@ -81,9 +81,10 @@ impl convert::From<CargoMetadataError> for LocateError {
     }
 }
 
-fn metadata() -> Result<json::JsonValue, CargoMetadataError> {
+fn metadata(path: Option<PathBuf>) -> Result<json::JsonValue, CargoMetadataError> {
     let mut cmd = Command::new(env!("CARGO"));
     cmd.arg("metadata");
+    cmd.arg("--manifest-path").arg(path.unwrap_or(PathBuf::from("./Cargo.toml")));
     cmd.arg("--format-version").arg("1");
     let output = cmd.output()?;
 
@@ -98,7 +99,6 @@ fn metadata() -> Result<json::JsonValue, CargoMetadataError> {
 
     Ok(parsed)
 }
-
 /// Failed to query project metadata.
 #[derive(Debug)]
 pub enum CargoMetadataError {
