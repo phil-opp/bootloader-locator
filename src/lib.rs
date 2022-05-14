@@ -16,7 +16,10 @@ pub enum WorkspaceMember {
 ///
 /// Returns the manifest path of the bootloader, i.e. the path to the Cargo.toml on the file
 /// system.
-pub fn locate_bootloader(dependency_name: &str, member: WorkspaceMember) -> Result<PathBuf, LocateError> {
+pub fn locate_bootloader(
+    dependency_name: &str,
+    member: WorkspaceMember,
+) -> Result<PathBuf, LocateError> {
     let metadata = metadata()?;
 
     let member_resolve = match member {
@@ -33,7 +36,8 @@ pub fn locate_bootloader(dependency_name: &str, member: WorkspaceMember) -> Resu
         WorkspaceMember::Name(member) => metadata["resolve"]["nodes"]
             .members()
             .find(|r| {
-                r["id"].as_str()
+                r["id"]
+                    .as_str()
                     .map(|s| s.starts_with(&member))
                     .unwrap_or_default()
             })
