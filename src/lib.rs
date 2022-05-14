@@ -5,6 +5,7 @@
 use std::{convert, fmt, io, path::PathBuf, process::Command, string};
 
 /// The type of workspace member to select
+#[derive(Debug)]
 pub enum WorkspaceMember {
     /// The root package of the workspace
     Root,
