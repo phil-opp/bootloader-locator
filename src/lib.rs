@@ -4,23 +4,43 @@
 
 use std::{convert, fmt, io, path::PathBuf, process::Command, string};
 
+/// The type of workspace member to select
+pub enum WorkspaceMember {
+    /// The root package of the workspace
+    Root,
+    /// A member of the workspace identified by its name
+    Name(String),
+}
+
 /// Locates the dependency with the given name on the file system.
 ///
 /// Returns the manifest path of the bootloader, i.e. the path to the Cargo.toml on the file
 /// system.
-pub fn locate_bootloader(dependency_name: &str) -> Result<PathBuf, LocateError> {
+pub fn locate_bootloader(dependency_name: &str, member: WorkspaceMember) -> Result<PathBuf, LocateError> {
     let metadata = metadata()?;
 
-    let root = metadata["resolve"]["root"]
-        .as_str()
-        .ok_or(LocateError::MetadataInvalid)?;
+    let member_resolve = match member {
+        WorkspaceMember::Root => {
+            let root_id = metadata["resolve"]["root"]
+                .as_str()
+                .ok_or(LocateError::MetadataInvalid)?;
 
-    let root_resolve = metadata["resolve"]["nodes"]
-        .members()
-        .find(|r| r["id"] == root)
-        .ok_or(LocateError::MetadataInvalid)?;
+            metadata["resolve"]["nodes"]
+                .members()
+                .find(|r| r["id"] == root_id)
+                .ok_or(LocateError::MetadataInvalid)?
+        }
+        WorkspaceMember::Name(member) => metadata["resolve"]["nodes"]
+            .members()
+            .find(|r| {
+                r["id"].as_str()
+                    .map(|s| s.starts_with(&member))
+                    .unwrap_or_default()
+            })
+            .ok_or(LocateError::MetadataInvalid)?,
+    };
 
-    let dependency = root_resolve["deps"]
+    let dependency = member_resolve["deps"]
         .members()
         .find(|d| d["name"] == dependency_name)
         .ok_or(LocateError::DependencyNotFound)?;
