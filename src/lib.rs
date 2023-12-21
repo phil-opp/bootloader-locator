@@ -16,12 +16,16 @@ pub fn locate_bootloader(dependency_name: &str) -> Result<PathBuf, LocateError> 
         .ok_or(LocateError::MetadataInvalid)?;
 
     let root_resolve = metadata["resolve"]["nodes"]
-        .members()
+        .as_array()
+        .unwrap()
+        .iter()
         .find(|r| r["id"] == root)
         .ok_or(LocateError::MetadataInvalid)?;
 
     let dependency = root_resolve["deps"]
-        .members()
+        .as_array()
+        .unwrap()
+        .iter()
         .find(|d| d["name"] == dependency_name)
         .ok_or(LocateError::DependencyNotFound)?;
     let dependency_id = dependency["pkg"]
@@ -29,7 +33,9 @@ pub fn locate_bootloader(dependency_name: &str) -> Result<PathBuf, LocateError> 
         .ok_or(LocateError::MetadataInvalid)?;
 
     let dependency_package = metadata["packages"]
-        .members()
+        .as_array()
+        .unwrap()
+        .iter()
         .find(|p| p["id"] == dependency_id)
         .ok_or(LocateError::MetadataInvalid)?;
     let dependency_manifest = dependency_package["manifest_path"]
@@ -81,7 +87,7 @@ impl convert::From<CargoMetadataError> for LocateError {
     }
 }
 
-fn metadata() -> Result<json::JsonValue, CargoMetadataError> {
+fn metadata() -> Result<serde_json::Value, CargoMetadataError> {
     let mut cmd = Command::new(env!("CARGO"));
     cmd.arg("metadata");
     cmd.arg("--format-version").arg("1");
@@ -94,7 +100,7 @@ fn metadata() -> Result<json::JsonValue, CargoMetadataError> {
     }
 
     let output = String::from_utf8(output.stdout)?;
-    let parsed = json::parse(&output)?;
+    let parsed = serde_json::from_str(&output)?;
 
     Ok(parsed)
 }
@@ -112,7 +118,7 @@ pub enum CargoMetadataError {
     /// The output of `cargo metadata` was not valid UTF-8.
     StringConversion(string::FromUtf8Error),
     /// An error occurred while parsing the output of `cargo metadata` as JSON.
-    ParseJson(json::Error),
+    ParseJson(serde_json::Error),
 }
 
 impl fmt::Display for CargoMetadataError {
@@ -161,8 +167,8 @@ impl convert::From<string::FromUtf8Error> for CargoMetadataError {
     }
 }
 
-impl convert::From<json::Error> for CargoMetadataError {
-    fn from(source: json::Error) -> Self {
+impl convert::From<serde_json::Error> for CargoMetadataError {
+    fn from(source: serde_json::Error) -> Self {
         CargoMetadataError::ParseJson(source)
     }
 }
